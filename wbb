@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Smart Parking Dashboard & AI Detection</title>
+
+  <!-- Tailwind CSS & FontAwesome -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+
+  <!-- TensorFlow.js & Teachable Machine -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.3/dist/teachablemachine-image.min.js"></script>
+
+  <!-- Firebase SDK App & Database (v8) -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+</head>
+<body class="bg-gray-100 font-sans min-h-screen text-gray-800">
+
+  <!-- Header / Navigation -->
+  <header class="bg-blue-600 text-white p-4 shadow-md flex justify-between items-center">
+    <h1 class="text-xl font-bold flex items-center gap-2">
+      <i class="fa-solid fa-square-parking"></i> Smart Parking AI System
+    </h1>
+    <button id="btnConnectMicrobit" onclick="connectMicrobit()" class="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition">
+      <i class="fa-solid fa-plug"></i> Hubungkan micro:bit
+    </button>
+  </header>
+
+  <main class="max-w-7xl mx-auto p-4 md:p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+
+    <!-- Column 1: AI Camera Control & Detection -->
+    <section class="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+      <h2 class="text-lg font-bold mb-4 flex items-center gap-2 text-blue-600">
+        <i class="fa-solid fa-camera"></i> AI Vehicle Detection
+      </h2>
+      <div id="webcam-container" class="w-full bg-gray-900 h-56 rounded-lg overflow-hidden flex items-center justify-center text-gray-400 relative">
+        <span>Kamera belum aktif</span>
+      </div>
+      
+      <div class="mt-4 flex gap-2">
+        <button onclick="initCamera()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-semibold text-sm transition">
+          Mulai Kamera
+        </button>
+        <button onclick="triggerGateInManual()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-semibold transition">
+          Gate IN Manual
+        </button>
+      </div>
+
+      <!-- Live Prediction Status -->
+      <div id="label-container" class="mt-4 space-y-2"></div>
+    </section>
+
+    <!-- Column 2: Dashboard Real-time Status -->
+    <section class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 space-y-6">
+      <h2 class="text-lg font-bold flex items-center gap-2 text-blue-600">
+        <i class="fa-solid fa-chart-pie"></i> Status Slot & Gerbang
+      </h2>
+
+      <!-- Slots Overview -->
+      <div class="grid grid-cols-2 gap-4">
+        <div id="cardSlotA" class="p-4 rounded-xl border text-center transition bg-gray-50 border-gray-200">
+          <p class="text-xs uppercase font-bold text-gray-500">Slot A</p>
+          <p id="textSlotA" class="text-lg font-extrabold mt-1 text-gray-600">Mengecek...</p>
+        </div>
+        <div id="cardSlotB" class="p-4 rounded-xl border text-center transition bg-gray-50 border-gray-200">
+          <p class="text-xs uppercase font-bold text-gray-500">Slot B</p>
+          <p id="textSlotB" class="text-lg font-extrabold mt-1 text-gray-600">Mengecek...</p>
+        </div>
+      </div>
+
+      <!-- Capacity Info -->
+      <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 flex justify-around text-center">
+        <div>
+          <span class="block text-2xl font-black text-blue-600" id="availableCount">0</span>
+          <span class="text-xs text-gray-500 font-semibold">Slot Tersedia</span>
+        </div>
+        <div class="border-r border-blue-200"></div>
+        <div>
+          <span class="block text-2xl font-black text-gray-700" id="totalCount">2</span>
+          <span class="text-xs text-gray-500 font-semibold">Total Slot</span>
+        </div>
+      </div>
+
+      <!-- Gates Status -->
+      <div class="space-y-3 pt-2">
+        <div class="flex justify-between items-center p-3 rounded-lg bg-gray-50 border">
+          <span class="font-semibold text-sm">Gate IN (micro:bit)</span>
+          <span id="badgeGateIn" class="px-3 py-1 rounded-full text-xs font-bold bg-gray-200 text-gray-700">TERTUTUP</span>
+        </div>
+        <div class="flex justify-between items-center p-3 rounded-lg bg-gray-50 border">
+          <span class="font-semibold text-sm">Gate OUT (ESP32)</span>
+          <span id="badgeGateOut" class="px-3 py-1 rounded-full text-xs font-bold bg-gray-200 text-gray-700">TERTUTUP</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Column 3: Activity Logs -->
+    <section class="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+      <h2 class="text-lg font-bold mb-4 flex items-center gap-2 text-blue-600">
+        <i class="fa-solid fa-list-check"></i> Activity Log
+      </h2>
+      <div id="logsContainer" class="space-y-2 max-h-[380px] overflow-y-auto pr-1 text-xs">
+        <div class="text-gray-400 text-center py-8">Belum ada riwayat aktivitas</div>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    // -------------------------------------------------------------
+    // 1. Firebase Initialization
+    // -------------------------------------------------------------
+    const firebaseConfig = {
+      databaseURL: "https://parkir-pintar-8b8ed-default-rtdb.asia-southeast1.firebasedatabase.app/"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // -------------------------------------------------------------
+    // 2. Real-time Firebase Syncing
+    // -------------------------------------------------------------
+    db.ref("parking").on("value", (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+
+      // Slot A Status
+      const cardA = document.getElementById("cardSlotA");
+      const textA = document.getElementById("textSlotA");
+      if (data.slotA?.occupied) {
+        cardA.className = "p-4 rounded-xl border text-center bg-red-50 border-red-200 text-red-700";
+        textA.innerText = "TERISI";
+      } else {
+        cardA.className = "p-4 rounded-xl border text-center bg-emerald-50 border-emerald-200 text-emerald-700";
+        textA.innerText = "KOSONG";
+      }
+
+      // Slot B Status
+      const cardB = document.getElementById("cardSlotB");
+      const textB = document.getElementById("textSlotB");
+      if (data.slotB?.occupied) {
+        cardB.className = "p-4 rounded-xl border text-center bg-red-50 border-red-200 text-red-700";
+        textB.innerText = "TERISI";
+      } else {
+        cardB.className = "p-4 rounded-xl border text-center bg-emerald-50 border-emerald-200 text-emerald-700";
+        textB.innerText = "KOSONG";
+      }
+
+      // Counters
+      document.getElementById("availableCount").innerText = data.available ?? 0;
+      document.getElementById("totalCount").innerText = data.total ?? 2;
+
+      // Gates Status
+      updateGateBadge("badgeGateIn", data.gateIn?.status);
+      updateGateBadge("badgeGateOut", data.gateOut?.status);
+    });
+
+    function updateGateBadge(id, status) {
+      const badge = document.getElementById(id);
+      if (status === "terbuka") {
+        badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 animate-pulse";
+        badge.innerText = "TERBUKA";
+      } else {
+        badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-gray-200 text-gray-700";
+        badge.innerText = "TERTUTUP";
+      }
+    }
+
+    // Load Recent Logs
+    db.ref("logs").limitToLast(10).on("value", (snapshot) => {
+      const logsContainer = document.getElementById("logsContainer");
+      logsContainer.innerHTML = "";
+      const logs = snapshot.val();
+      if (!logs) return;
+
+      Object.values(logs).reverse().forEach(log => {
+        const item = document.createElement("div");
+        item.className = "p-2 bg-gray-50 border rounded flex justify-between items-center";
+        item.innerHTML = `
+          <div>
+            <span class="font-semibold text-gray-700">[${log.source}]</span> ${log.event}
+          </div>
+          <span class="text-[10px] text-gray-400">${new Date(log.time).toLocaleTimeString()}</span>
+        `;
+        logsContainer.appendChild(item);
+      });
+    });
+
+    // -------------------------------------------------------------
+    // 3. Web Serial API Integration for micro:bit
+    // -------------------------------------------------------------
+    let port, writer;
+
+    async function connectMicrobit() {
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 115200 });
+        const textEncoder = new TextEncoderStream();
+        textEncoder.readable.pipeTo(port.writable);
+        writer = textEncoder.writable.getWriter();
+        
+        const btn = document.getElementById("btnConnectMicrobit");
+        btn.className = "bg-gray-600 text-white px-4 py-2 rounded-lg text-sm font-semibold cursor-default";
+        btn.innerHTML = `<i class="fa-solid fa-circle-check text-emerald-400"></i> micro:bit Terhubung`;
+
+        pushLog("website", "micro:bit terhubung via Serial");
+      } catch (err) {
+        alert("Gagal terhubung ke micro:bit: " + err);
+      }
+    }
+
+    async function sendCommandToMicrobit(cmd) {
+      if (writer) {
+        await writer.write(cmd + "\n");
+      }
+    }
+
+    // -------------------------------------------------------------
+    // 4. Teachable Machine Integration
+    // -------------------------------------------------------------
+    const MODEL_URL = "https://teachablemachine.withgoogle.com/models/Mq4Ey6k-y/";
+    let model, webcam, labelContainer, maxPredictions;
+    let isGateInProcessing = false;
+
+    async function initCamera() {
+      const modelURL = MODEL_URL + "model.json";
+      const metadataURL = MODEL_URL + "metadata.json";
+
+      model = await tmImage.load(modelURL, metadataURL);
+      maxPredictions = model.getTotalClasses();
+
+      webcam = new tmImage.Webcam(320, 240, true);
+      await webcam.setup();
+      await webcam.play();
+      window.requestAnimationFrame(loopCamera);
+
+      document.getElementById("webcam-container").innerHTML = "";
+      document.getElementById("webcam-container").appendChild(webcam.canvas);
+
+      labelContainer = document.getElementById("label-container");
+      labelContainer.innerHTML = "";
+      for (let i = 0; i < maxPredictions; i++) {
+        labelContainer.appendChild(document.createElement("div"));
+      }
+
+      pushLog("website", "Kamera & model Teachable Machine aktif");
+    }
+
+    async function loopCamera() {
+      webcam.update();
+      await predict();
+      window.requestAnimationFrame(loopCamera);
+    }
+
+    async function predict() {
+      const prediction = await model.predict(webcam.canvas);
+      
+      for (let i = 0; i < maxPredictions; i++) {
+        const className = prediction[i].className;
+        const probability = prediction[i].probability.toFixed(2);
+        
+        labelContainer.childNodes[i].innerHTML = `
+          <div class="flex justify-between text-xs font-semibold mb-1">
+            <span>${className}</span>
+            <span>${(probability * 100).toFixed(0)}%</span>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-2">
+            <div class="bg-blue-600 h-2 rounded-full" style="width: ${probability * 100}%"></div>
+          </div>
+        `;
+
+        // Deteksi Kendaraan/Mobil dengan Ambang Kepercayaan > 85%
+        if ((className.toLowerCase().includes("mobil") || className.toLowerCase().includes("car")) && probability > 0.85) {
+          triggerGateInAuto();
+        }
+      }
+    }
+
+    // -------------------------------------------------------------
+    // 5. Gate IN Auto/Manual Logic
+    // -------------------------------------------------------------
+    function triggerGateInAuto() {
+      if (isGateInProcessing) return;
+      
+      // Cek apakah slot masih tersedia
+      db.ref("parking/available").once("value", (snap) => {
+        if (snap.val() > 0) {
+          executeGateInOpen("Mobil Terdeteksi AI");
+        }
+      });
+    }
+
+    function triggerGateInManual() {
+      if (isGateInProcessing) return;
+      executeGateInOpen("Trigger Manual Website");
+    }
+
+    function executeGateInOpen(reason) {
+      isGateInProcessing = true;
+      const now = Date.now();
+
+      // Synchronize state ke Firebase
+      db.ref("parking/gateIn").set({ status: "terbuka", updated: now });
+      pushLog("website", `Gate IN dibuka (${reason})`);
+
+      // Kirim sinyal instruksi ke micro:bit
+      sendCommandToMicrobit("OPEN_GATE_IN");
+
+      // Auto close gate di Firebase setelah 4 detik
+      setTimeout(() => {
+        db.ref("parking/gateIn").set({ status: "tertutup", updated: Date.now() });
+        pushLog("website", "Gate IN tertutup kembali");
+        isGateInProcessing = false;
+      }, 4000);
+    }
+
+    function pushLog(source, event) {
+      const logId = "web_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+      db.ref("logs/" + logId).set({
+        time: Date.now(),
+        source: source,
+        event: event
+      });
+    }
+  </script>
+</body>
+</html>
